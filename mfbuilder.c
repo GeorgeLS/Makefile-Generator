@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <ctype.h>
 
 #define ALLOC(size, type) ((type*) malloc((size) * sizeof(type)))
 
@@ -18,6 +19,8 @@ static inline void generate_makefile(FILE*, file_info**, size_t);
 static inline void print_object_file(FILE*, char*);
 static inline void print_headers(FILE*, char**, size_t);
 const char* get_extension(const char*);
+uint8_t is_comment(char*);
+uint8_t is_space(char*);
 
 char buffer[1024];
 
@@ -141,9 +144,9 @@ void get_file_dependencies(file_info** fi, size_t n) {
       fgets(buffer, sizeof(buffer), handler);
       buffer[strlen(buffer) - 1] = '\0';
       if (strstr(buffer, "#include") == NULL) {
-	if (flag == 0U) continue;
+	if (is_comment(buffer) || is_space(buffer)) continue;
 	else break;
-      } else flag = 1U;
+      }
       if (strstr(buffer, ".h\"") != NULL) {
 	const char* aux = buffer;
 	while (*aux++ != '"');
@@ -169,4 +172,29 @@ inline void print_headers(FILE* file, char** headers, size_t n) {
   for (size_t i = 0U; i != n; ++i) {
     fprintf(file, "%s ", headers[i]);
   }
+}
+
+uint8_t is_comment(char* buffer) {
+  char** base = &buffer;
+  while (*buffer != '\0') {
+    if (*buffer++ == '/') {
+      if (*buffer == '*' || *buffer == '/') {
+	buffer = *base; return 1U;
+      }
+    }
+  }
+  buffer = *base;
+  return 0U;
+}
+
+uint8_t is_space(char* buffer) {
+  char** base = &buffer;
+  while (*buffer != '\0') {
+    if (!isspace(*buffer++)) {
+      buffer = *base;
+      return 0U;
+    }
+  }
+  buffer = *base;
+  return 1U;
 }
