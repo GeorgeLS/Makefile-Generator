@@ -6,3 +6,5 @@ It's not something crazy but it might come in handy when you are starting a new 
 In order to use it you must give the name that you whould like your executable to be and the source files. The program will add 
 as dependencies the header files that you have included in your source code, so it's up to you to make sure that you've created 
 the corresponding header files, so the generated makefile can be functional.
+
+Program usage: ./mfbuilder -n exec_name source_files
