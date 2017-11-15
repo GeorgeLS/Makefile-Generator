@@ -83,12 +83,6 @@ const char* get_extension(const char* name) {
   }
 }
 
-inline void print_files(FILE* file, char** files, size_t n) {
-  for (size_t i = 0U; i != n; ++i) {
-    fprintf(file, "%s ", files[i]);
-  }
-}
-
 inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
   fprintf(file, "CC = %s\nFLAGS = -Wall -ggdb\n", compiler);
   fprintf(file, "OPTFLAGS = -O3\n");
