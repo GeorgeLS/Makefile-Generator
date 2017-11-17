@@ -6,11 +6,31 @@
 
 #define ALLOC(size, type) ((type*) malloc((size) * sizeof(type)))
 
+#define DLL_N 3
+#define DLL_SIZE 21
+
 typedef struct {
   char* source;
   char** headers;
+  char** dll;
   size_t hn;
+  size_t dlln;
 } file_info;
+
+/* These are the dynamic linked libraries so far. I can't find a list online of the dlls
+   that there are on C.*/
+
+typedef struct {
+  uint8_t mflag : 1;
+  uint8_t pflag : 1;
+  uint8_t nflag : 1;
+} dll_flags;
+
+char dlls[DLL_N][2][DLL_SIZE] = {
+  { "math.h", "-lm" },
+  { "pthread.h", "-lpthread" },
+  { "ncurses.h", "-lncurses" }
+};
 
 void get_file_dependencies(file_info**, size_t);
 static inline void init_file_info(file_info*);
@@ -21,6 +41,7 @@ static inline void print_headers(FILE*, char**, size_t);
 const char* get_extension(const char*);
 uint8_t is_comment(char*);
 uint8_t is_space(char*);
+void search_for_dll(size_t*, file_info*);
 
 char buffer[1024];
 
@@ -41,6 +62,7 @@ int main(int argc, char* argv[]) {
     fi[i] = ALLOC(1, file_info);
     init_file_info(fi[i]);
     fi[i]->headers = ALLOC(args, char*);
+    fi[i]->dll = ALLOC(DLL_N, char*);
   }
   size_t j = 0U;
   while (--argc) {
@@ -93,20 +115,57 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
   fprintf(file, "bin: ");
   for (size_t i = 0U; i != n; ++i) {
     print_object_file(file, fi[i]->source);
-  } putc('\n', file);
-  putc('\t', file);
+  }
+  putc('\n', file); putc('\t', file);
   fprintf(file, "$(CC) $(FLAGS) $(OPTFLAGS) ");
   for (size_t i = 0U; i != n; ++i) {
     print_object_file(file, fi[i]->source);
   }
-  fprintf(file, "-o %s\n\n", bin_name);
+  fprintf(file, "-o %s ", bin_name);
+  dll_flags flags = {0, 0, 0};
+  size_t* info = ALLOC(DLL_N, size_t);
+  for (size_t i = 0U; i != DLL_N; ++i) info[i] = 0U;
+  for (size_t i = 0U; i != n; ++i) {
+    search_for_dll(info, fi[i]);
+    for (size_t j = 0U; j != DLL_N; ++j) {
+      switch (info[j]) {
+      case 0: break;
+      case 1:
+	switch (j) {
+	case 0:
+	  if (flags.mflag == 0U) fprintf(file, "%s ", dlls[j][1]);
+	  flags.mflag = 1U;
+	  break;
+	case 1:
+	  if (flags.pflag == 0U) fprintf(file, "%s ", dlls[j][1]);
+	  flags.pflag = 1U;
+	  break;
+	case 2:
+	  if (flags.nflag == 0U) fprintf(file, "%s ", dlls[j][1]);
+	  flags.nflag = 1U;
+	  break;
+	}
+      }
+    }
+  }
+  free(info);
+  putc('\n', file); putc('\n', file);
   for (size_t i = 0U; i != n; ++i) {
     print_object_file(file, fi[i]->source);
     putc(':', file); putc(' ', file);
     fprintf(file, "%s ", fi[i]->source);
     print_headers(file, fi[i]->headers, fi[i]->hn);
     putc('\n', file); putc('\t', file);
-    fprintf(file, "$(CC) $(FLAGS) $(OPTFLAGS) -c %s\n\n", fi[i]->source);
+    fprintf(file, "$(CC) $(FLAGS) $(OPTFLAGS) -c %s ", fi[i]->source);
+    for (size_t j = 0U; j != fi[i]->dlln; ++j) {
+      for (size_t k = 0U; k != DLL_N; ++k) {
+	if (strcmp(fi[i]->dll[j], dlls[k][0]) == 0) {
+	  fprintf(file, "%s ", dlls[k][1]);
+	  break;
+	}
+      }
+    }
+    putc('\n', file); putc('\n', file);
   }
   fprintf(file, ".PHONY : clear\n\n");
   fprintf(file, "clear :\n\trm -f %s ", bin_name);
@@ -118,21 +177,29 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
 inline void init_file_info(file_info* fi) {
   fi->source = NULL;
   fi->headers = NULL;
+  fi->dll = NULL;
   fi->hn = 0U;
+  fi->dlln = 0U;
 }
 
 inline void delete_file_info(file_info* fi) {
   free(fi->source);
   for (size_t i = 0U; i != fi->hn; ++i) {
     free(fi->headers[i]);
-  } free(fi->headers);
-  free(fi);
+  }
+  for (size_t i = 0U; i != fi->dlln; ++i) {
+    free(fi->dll[i]);
+  }
+  free(fi->headers);
+  //  free(fi->dll);
+  //free(fi);
 }
 
 void get_file_dependencies(file_info** fi, size_t n) {
   for (size_t i = 0U; i != n; ++i) {
     FILE* handler = fopen(fi[i]->source, "rb");
     size_t j = 0U;
+    size_t k = 0U;
     uint8_t flag = 0U;
     while (1) {
       fgets(buffer, sizeof(buffer), handler);
@@ -149,9 +216,23 @@ void get_file_dependencies(file_info** fi, size_t n) {
 	while (*aux++ != '"') ++len;
 	fi[i]->headers[j] = ALLOC(len + 1, char);
 	strncpy(fi[i]->headers[j++], start, len);
+      } else if (strstr(buffer, ".h>") != NULL) {
+	const char* aux = buffer;
+	while (*aux++ != '<');
+	const char* start = aux;
+	size_t len = 0U;
+	while (*aux++ != '>') ++len;
+	for (size_t j = 0U; j != DLL_N; ++j) {
+	  if (strncmp(start, dlls[j][0], len) == 0) {
+	    fi[i]->dll[k] = ALLOC(len + 1, char);
+	    strncpy(fi[i]->dll[k++], start, len);
+	    break;
+	  }
+	}
       }
     }
     fi[i]->hn = j;
+    fi[i]->dlln = k;
     fclose(handler);
   }
 }
@@ -191,4 +272,12 @@ uint8_t is_space(char* buffer) {
   }
   buffer = *base;
   return 1U;
+}
+
+void search_for_dll(size_t* info, file_info* fi) {
+  for (size_t i = 0U; i != fi->dlln; ++i) {
+    for (size_t j = 0U; j != DLL_N; ++j) {
+      if (strcmp(fi->dll[i], dlls[j][0]) == 0) info[j] = 1U;
+    }
+  }
 }
