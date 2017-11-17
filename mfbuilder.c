@@ -191,8 +191,8 @@ inline void delete_file_info(file_info* fi) {
     free(fi->dll[i]);
   }
   free(fi->headers);
-  //  free(fi->dll);
-  //free(fi);
+  free(fi->dll);
+  free(fi);
 }
 
 void get_file_dependencies(file_info** fi, size_t n) {
