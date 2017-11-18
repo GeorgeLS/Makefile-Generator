@@ -32,16 +32,20 @@ char dlls[DLL_N][2][DLL_SIZE] = {
   { "ncurses.h", "-lncurses" }
 };
 
-void get_file_dependencies(file_info**, size_t);
 static inline void init_file_info(file_info*);
-static inline void delete_file_info(file_info*);
+static inline void delete_file_info(file_info**, size_t);
 static inline void generate_makefile(FILE*, file_info**, size_t);
-static inline void print_object_file(FILE*, char*);
+static inline void print_object_file(FILE*, const char*);
+static inline void print_all_obj_files(FILE*, file_info**, size_t);
 static inline void print_headers(FILE*, char**, size_t);
+static inline void check_arguments(int, char**);
+file_info** alloc_and_init_file_info(size_t);
 const char* get_extension(const char*);
-uint8_t is_comment(char*);
-uint8_t is_space(char*);
+uint8_t is_comment(const char*);
+uint8_t is_space(const char*);
+uint8_t is_directive(const char*);
 void search_for_dll(size_t*, file_info*);
+void get_file_dependencies(file_info**, size_t);
 
 char buffer[1024];
 
@@ -55,24 +59,17 @@ char compiler[4];
 char* bin_name;
 
 int main(int argc, char* argv[]) {
+  check_arguments(argc, argv);
   int args = argc - 3;
   FILE* makefile;
-  file_info** fi = ALLOC(args, file_info*);
-  for (size_t i = 0U; i != args; ++i) {
-    fi[i] = ALLOC(1, file_info);
-    init_file_info(fi[i]);
-    fi[i]->headers = ALLOC(args, char*);
-    fi[i]->dll = ALLOC(DLL_N, char*);
-  }
+  file_info** fi = alloc_and_init_file_info(args);
   size_t j = 0U;
   while (--argc) {
     ++argv;
     if (strcmp("-n", *argv) == 0) {
       bin_name = ALLOC(strlen(*argv) + 1, char);
-      ++argv;
-      strncpy(bin_name, *argv, strlen(*argv));
-      --argc;
-      continue;
+      strncpy(bin_name, *argv, strlen(*++argv));
+      --argc; continue;
     }
     fi[j]->source = ALLOC(strlen(*argv) + 1, char);
     strncpy(fi[j++]->source, *argv, strlen(*argv));
@@ -86,43 +83,35 @@ int main(int argc, char* argv[]) {
   get_file_dependencies(fi, args);
   makefile = fopen("makefile", "wb");
   generate_makefile(makefile, fi, args);
-  for (size_t i = 0U; i != args; ++i) {
-    delete_file_info(fi[i]);
-  } free(fi);
+  delete_file_info(fi, args);
   fclose(makefile);
   return EXIT_SUCCESS;
 }
 
 const char* get_extension(const char* name) {
+  const char** base = &name;
   char ch;
-  const char** original = &name;
   while (*name++ != '.');
   if (strcmp("c", name) == 0) {
-    name = *original;
-    return "C";
+    name = *base; return "C";
   }
   if (strcmp("cc", name) == 0 ||
       strcmp("cpp", name) == 0) {
-    name = *original;
-    return "CPP";
+    name = *base; return "CPP";
   }
 }
 
 inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
-  fprintf(file, "CC = %s\nFLAGS = -Wall -ggdb\n", compiler);
+  fprintf(file, "CC = %s\nCFLAGS = -Wall -ggdb\n", compiler);
   fprintf(file, "OPTFLAGS = -O3\n");
   putc('\n', file);
   fprintf(file, "bin: ");
-  for (size_t i = 0U; i != n; ++i) {
-    print_object_file(file, fi[i]->source);
-  }
+  print_all_obj_files(file, fi, n);
   putc('\n', file); putc('\t', file);
-  fprintf(file, "$(CC) $(FLAGS) $(OPTFLAGS) ");
-  for (size_t i = 0U; i != n; ++i) {
-    print_object_file(file, fi[i]->source);
-  }
+  fprintf(file, "$(CC) $(CFLAGS) $(OPTFLAGS) ");
+  print_all_obj_files(file, fi, n);
   fprintf(file, "-o %s ", bin_name);
-  dll_flags flags = {0, 0, 0};
+  dll_flags flags = {0};
   size_t* info = ALLOC(DLL_N, size_t);
   for (size_t i = 0U; i != DLL_N; ++i) info[i] = 0U;
   for (size_t i = 0U; i != n; ++i) {
@@ -156,7 +145,7 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
     fprintf(file, "%s ", fi[i]->source);
     print_headers(file, fi[i]->headers, fi[i]->hn);
     putc('\n', file); putc('\t', file);
-    fprintf(file, "$(CC) $(FLAGS) $(OPTFLAGS) -c %s ", fi[i]->source);
+    fprintf(file, "$(CC) $(CFLAGS) $(OPTFLAGS) -c %s ", fi[i]->source);
     for (size_t j = 0U; j != fi[i]->dlln; ++j) {
       for (size_t k = 0U; k != DLL_N; ++k) {
 	if (strcmp(fi[i]->dll[j], dlls[k][0]) == 0) {
@@ -169,9 +158,8 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
   }
   fprintf(file, ".PHONY : clear\n\n");
   fprintf(file, "clear :\n\trm -f %s ", bin_name);
-  for (size_t i = 0U; i != n; ++i) {
-    print_object_file(file, fi[i]->source);
-  } putc('\n', file);
+  print_all_obj_files(file, fi, n);
+  putc('\n', file);
 }
 
 inline void init_file_info(file_info* fi) {
@@ -182,17 +170,17 @@ inline void init_file_info(file_info* fi) {
   fi->dlln = 0U;
 }
 
-inline void delete_file_info(file_info* fi) {
-  free(fi->source);
-  for (size_t i = 0U; i != fi->hn; ++i) {
-    free(fi->headers[i]);
-  }
-  for (size_t i = 0U; i != fi->dlln; ++i) {
-    free(fi->dll[i]);
-  }
-  free(fi->headers);
-  //  free(fi->dll);
-  //free(fi);
+inline void delete_file_info(file_info** fi, size_t n) {
+  for (size_t i = 0U; i != n; ++i) {
+    free(fi[i]->source);
+    for (size_t j = 0U; j != fi[i]->hn; ++j) {
+      free(fi[i]->headers[j]);
+    } free(fi[i]->headers);
+    for (size_t j = 0U; j != fi[i]->dlln; ++j) {
+      free(fi[i]->dll[j]);
+    } free(fi[i]->dll);
+    free(fi[i]);
+  } free(fi);
 }
 
 void get_file_dependencies(file_info** fi, size_t n) {
@@ -200,13 +188,14 @@ void get_file_dependencies(file_info** fi, size_t n) {
     FILE* handler = fopen(fi[i]->source, "rb");
     size_t j = 0U;
     size_t k = 0U;
-    uint8_t flag = 0U;
     while (1) {
       fgets(buffer, sizeof(buffer), handler);
       buffer[strlen(buffer) - 1] = '\0';
       if (strstr(buffer, "#include") == NULL) {
-	if (is_comment(buffer) || is_space(buffer)) continue;
-	else break;
+	if (is_comment(buffer) ||
+	    is_space(buffer) ||
+	    is_directive(buffer)) continue;
+	break;
       }
       if (strstr(buffer, ".h\"") != NULL) {
 	const char* aux = buffer;
@@ -231,14 +220,12 @@ void get_file_dependencies(file_info** fi, size_t n) {
 	}
       }
     }
-    fi[i]->hn = j;
-    fi[i]->dlln = k;
-    fclose(handler);
+    fi[i]->hn = j; fi[i]->dlln = k; fclose(handler);
   }
 }
 
-inline void print_object_file(FILE* file, char* name) {
-  char** base = &name;
+inline void print_object_file(FILE* file, const char* name) {
+  const char** base = &name;
   while (*name != '.') { putc(*name, file); ++name; }
   fprintf(file, ".o ");
 }
@@ -249,8 +236,8 @@ inline void print_headers(FILE* file, char** headers, size_t n) {
   }
 }
 
-uint8_t is_comment(char* buffer) {
-  char** base = &buffer;
+uint8_t is_comment(const char* buffer) {
+  const char** base = &buffer;
   while (*buffer != '\0') {
     if (*buffer++ == '/') {
       if (*buffer == '*' || *buffer == '/') {
@@ -258,20 +245,26 @@ uint8_t is_comment(char* buffer) {
       }
     }
   }
-  buffer = *base;
-  return 0U;
+  buffer = *base; return 0U;
 }
 
-uint8_t is_space(char* buffer) {
-  char** base = &buffer;
+uint8_t is_space(const char* buffer) {
+  const char** base = &buffer;
   while (*buffer != '\0') {
     if (!isspace(*buffer++)) {
-      buffer = *base;
-      return 0U;
+      buffer = *base; return 0U;
     }
   }
-  buffer = *base;
-  return 1U;
+  buffer = *base; return 1U;
+}
+
+uint8_t is_directive(const char* buffer) {
+  if (strstr(buffer, "#if") != NULL ||
+      strstr(buffer, "else") != NULL ||
+      strstr(buffer, "#end") != NULL ||
+      strstr(buffer, "#define") != NULL ||
+      strstr(buffer, "undef") != NULL) return 1U;
+  return 0U;
 }
 
 void search_for_dll(size_t* info, file_info* fi) {
@@ -279,5 +272,37 @@ void search_for_dll(size_t* info, file_info* fi) {
     for (size_t j = 0U; j != DLL_N; ++j) {
       if (strcmp(fi->dll[i], dlls[j][0]) == 0) info[j] = 1U;
     }
+  }
+}
+
+file_info** alloc_and_init_file_info(size_t n) {
+  file_info** new_fi = ALLOC(n, file_info*);
+  for (size_t i = 0U; i != n; ++i) {
+    new_fi[i] = ALLOC(1, file_info);
+    init_file_info(new_fi[i]);
+    new_fi[i]->headers = ALLOC(n, char*);
+    new_fi[i]->dll = ALLOC(DLL_N, char*);
+  } return new_fi;
+}
+
+inline void check_arguments(int argc, char** argv) {
+  if ((argc - 3U) <= 0U) {
+    fprintf(stderr, "You should provide more arguments!\n");
+    fprintf(stderr, "Program usage: ./mfbuilder -n exec_name source_files\n");
+    exit(EXIT_FAILURE);
+  }
+  uint8_t seen = 0U;
+  while (--argc) {
+    if (strcmp("-n", argv[argc]) == 0) seen = 1U;
+  }
+  if (!seen) {
+    fprintf(stderr, "You should provide an executable name with the parameter -n\n");
+    exit(EXIT_FAILURE);
+  }
+}
+
+inline void print_all_obj_files(FILE* file, file_info** fi, size_t n) {
+  for (size_t i = 0U; i != n; ++i) {
+    print_object_file(file, fi[i]->source);
   }
 }
