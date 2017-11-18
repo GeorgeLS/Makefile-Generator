@@ -170,7 +170,6 @@ inline void init_file_info(file_info* fi) {
   fi->dlln = 0U;
 }
 
-<<<<<<< HEAD
 inline void delete_file_info(file_info** fi, size_t n) {
   for (size_t i = 0U; i != n; ++i) {
     free(fi[i]->source);
@@ -182,19 +181,6 @@ inline void delete_file_info(file_info** fi, size_t n) {
     } free(fi[i]->dll);
     free(fi[i]);
   } free(fi);
-=======
-inline void delete_file_info(file_info* fi) {
-  free(fi->source);
-  for (size_t i = 0U; i != fi->hn; ++i) {
-    free(fi->headers[i]);
-  }
-  for (size_t i = 0U; i != fi->dlln; ++i) {
-    free(fi->dll[i]);
-  }
-  free(fi->headers);
-  free(fi->dll);
-  free(fi);
->>>>>>> f952ea3e36a9bb5f3689bc6edc0fbb7f00469ccf
 }
 
 void get_file_dependencies(file_info** fi, size_t n) {
