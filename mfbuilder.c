@@ -103,12 +103,12 @@ const char* get_extension(const char* name) {
 
 inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
   fprintf(file, "CC = %s\nCFLAGS = -Wall -ggdb\n", compiler);
-  fprintf(file, "OPTFLAGS = -O3\n");
+  /* fprintf(file, "OPTFLAGS = -O3\n"); */
   putc('\n', file);
   fprintf(file, "bin: ");
   print_all_obj_files(file, fi, n);
   putc('\n', file); putc('\t', file);
-  fprintf(file, "$(CC) $(CFLAGS) $(OPTFLAGS) ");
+  fprintf(file, "$(CC) $(CFLAGS) ");
   print_all_obj_files(file, fi, n);
   fprintf(file, "-o %s ", bin_name);
   dll_flags flags = {0};
@@ -145,7 +145,7 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
     fprintf(file, "%s ", fi[i]->source);
     print_headers(file, fi[i]->headers, fi[i]->hn);
     putc('\n', file); putc('\t', file);
-    fprintf(file, "$(CC) $(CFLAGS) $(OPTFLAGS) -c %s ", fi[i]->source);
+    fprintf(file, "$(CC) $(CFLAGS) -c %s ", fi[i]->source);
     for (size_t j = 0U; j != fi[i]->dlln; ++j) {
       for (size_t k = 0U; k != DLL_N; ++k) {
 	if (strcmp(fi[i]->dll[j], dlls[k][0]) == 0) {
@@ -160,6 +160,7 @@ inline void generate_makefile(FILE* file, file_info** fi, size_t n) {
   fprintf(file, "clear :\n\trm -f %s ", bin_name);
   print_all_obj_files(file, fi, n);
   putc('\n', file);
+  fprintf(file, "#Generated with makefile generator: https://github.com/GeorgeLS/Makefile-Generator/blob/master/mfbuilder.c\n");
 }
 
 inline void init_file_info(file_info* fi) {
