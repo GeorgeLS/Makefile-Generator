@@ -171,7 +171,7 @@ inline void init_file_info(file_info* fi) {
   fi->dlln = 0U;
 }
 
-ιnline void delete_file_info(file_info** fi, size_t n) {
+inline void delete_file_info(file_info** fi, size_t n) {
   for (size_t i = 0U; i != n; ++i) {
     free(fi[i]->source);
     for (size_t j = 0U; j != fi[i]->hn; ++j) {
